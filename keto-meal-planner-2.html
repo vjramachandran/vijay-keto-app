@@ -898,7 +898,10 @@ ${extraLine}
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 1000,
@@ -906,18 +909,46 @@ ${extraLine}
         })
       });
 
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || `API error ${res.status}`);
+      }
+
       const data = await res.json();
       const raw = data.content?.map(b => b.text || '').join('') || '';
       const match = raw.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error('Could not parse recipe');
+      if (!match) throw new Error('Could not parse recipe from response');
       const recipe = JSON.parse(match[0]);
       renderRecipe(recipe, meal, ingredients, cuisineLabel, extraStr, calLabel);
     } catch(err) {
-      output.innerHTML = `<div class="error-card">⚠️ Something went wrong. Please try again.<br><small style="opacity:0.6">${err.message}</small></div>`;
+      output.innerHTML = `
+        <div class="error-card">
+          ⚠️ Something went wrong — please try again.<br>
+          <small style="opacity:0.6;display:block;margin-top:6px">${err.message}</small>
+        </div>`;
     } finally {
       btn.disabled = false;
     }
   }
+
+  // Global safety net — prevents the page ever going blank on an unexpected error
+  window.addEventListener('error', (e) => {
+    const output = document.getElementById('output');
+    if (output && output.innerHTML.includes('loading-card')) {
+      output.innerHTML = `<div class="error-card">⚠️ Something went wrong — please try again.<br><small style="opacity:0.6">${e.message}</small></div>`;
+    }
+    const btn = document.getElementById('gen-btn');
+    if (btn) btn.disabled = false;
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const output = document.getElementById('output');
+    if (output && output.innerHTML.includes('loading-card')) {
+      output.innerHTML = `<div class="error-card">⚠️ Something went wrong — please try again.<br><small style="opacity:0.6">${e.reason}</small></div>`;
+    }
+    const btn = document.getElementById('gen-btn');
+    if (btn) btn.disabled = false;
+  });
 
   function renderRecipe(r, meal, ingredients, cuisineLabel, extraStr, calLabel) {
     const output = document.getElementById('output');
